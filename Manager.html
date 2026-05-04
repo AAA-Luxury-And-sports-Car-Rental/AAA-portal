@@ -104,7 +104,6 @@
       <div class="form-group"><label>Scheduled Start</label><div class="form-row"><input type="date" id="dDate" onchange="checkAvailability()"><input type="time" id="dTime" onchange="checkAvailability()"></div></div>
       <div class="form-group"><label>Estimated End (Optional)</label><div class="form-row"><input type="date" id="dEndDate" onchange="checkAvailability()"><input type="time" id="dEndTime" onchange="checkAvailability()"></div></div>
       
-      <!-- Driver is a safe mobile dropdown, Client allows free typing and suggestions -->
       <div class="form-group"><label>Assign Driver</label><select id="dName"><option value="" disabled selected>Select available driver...</option></select></div>
       <div class="form-group"><label>Client Name</label><input list="dClients" id="dClient" placeholder="Type or select client..."><datalist id="dClients"></datalist></div>
       
@@ -173,14 +172,12 @@
           
           if (attempt >= maxRetries) {
             console.error("API completely failed after retries.");
-            // Only alert if it's an interactive action, not a background sync
             if (fnName !== "getManagerData" && fnName !== "updateLiveLocation") {
                 alert("Server connection unstable. Please check your network and try again.");
             }
             throw error;
           }
           
-          // Wait before retrying (exponential backoff)
           await new Promise(resolve => setTimeout(resolve, attempt * 1000));
         }
       }
@@ -197,8 +194,8 @@
         appDataGlobal = data;
         appDataGlobal.filteredVehicles = data.vehicleData; 
         
-        fillList("dName", data.workers); // Populates the Driver <select>
-        fillList("dClients", data.clients); // Populates the Client <datalist>
+        fillList("dName", data.workers); 
+        fillList("dClients", data.clients); 
         fillList("dBrand", [...new Set(data.vehicleData.map(v => v.brand).filter(String))]);
       }).catch(err => showToast("Init Error: " + err.message));
       setTimeout(function(){ if(map) map.invalidateSize(); }, 500);
@@ -388,7 +385,7 @@
     }
     
     updateDashboard(); 
-    setInterval(updateDashboard, 30000); // Updated to 30 seconds to prevent rate limiting
+    setInterval(updateDashboard, 30000);
   </script>
 </body>
 </html>
