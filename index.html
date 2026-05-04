@@ -19,8 +19,9 @@
     <img src="https://i.postimg.cc/cJhXywng/aaa-luxury-sport-cars-rental-logo.jpg" class="logo-img">
     <h2 data-i18n="title">Driver Portal</h2>
 
+    <!-- FIX 3: Changed onchange to attemptLogin() -->
     <label data-i18n="selectName">Select Your Name</label>
-    <select id="workerName" onchange="checkUser()"><option value="" disabled selected data-i18n="namePlace">Select name...</option></select>
+    <select id="workerName" onchange="attemptLogin()"><option value="" disabled selected data-i18n="namePlace">Select name...</option></select>
     <div id="loader" style="display:none;color:#c5a059;margin-top:10px" data-i18n="loading">Loading...</div>
 
     <div id="preShiftDashboard" style="display:none;">
@@ -115,7 +116,8 @@
     const toggleBox = function(id) { let s = $(id).style; s.display = s.display === "none" || !s.display ? "block" : "none"; };
     const getUnique = function(arr) { return [...new Set(arr)]; };
 
-    let trackingInterval = null, assignedMissionData = null, signaturePad, allVehicleData = [], currentShiftDetails = {}, isCheckingUser = false, currentLang = "en"; 
+    // Added appDataGlobal
+    let trackingInterval = null, assignedMissionData = null, signaturePad, allVehicleData = [], currentShiftDetails = {}, isCheckingUser = false, currentLang = "en", appDataGlobal = null; 
     const webAppUrl = window.location.href.split('?')[0]; 
     
     let t = {
@@ -154,6 +156,28 @@
       }
     };
 
+    // FIX 3: ADDED attemptLogin function for secure pin checks
+    function attemptLogin() {
+      let name = $("workerName").value;
+      if(!name) return;
+      
+      let expectedPin = (appDataGlobal && appDataGlobal.driverPins && appDataGlobal.driverPins[name]) ? appDataGlobal.driverPins[name] : "0000";
+      
+      let pin = prompt(currentLang === "en" ? "Enter your PIN (Default is 0000):" : "Entrez votre code PIN (Défaut: 0000):");
+      
+      if(pin === null) { 
+          $("workerName").value = ""; 
+          return; 
+      }
+      
+      if(pin === expectedPin) {
+          checkUser(); 
+      } else {
+          alert(currentLang === "en" ? "Incorrect PIN." : "Code PIN incorrect.");
+          $("workerName").value = ""; 
+      }
+    }
+
     window.onload = function() { 
       setLang("en"); 
       let loader = $("loader");
@@ -169,6 +193,8 @@
         if(!d) return; 
         if(d.error) { alert("Spreadsheet Error: " + d.error); return; }
         
+        appDataGlobal = d; // Store Globally for PIN usage
+        
         fillList("workerName", d.workers); 
         fillList("clients", d.clients); 
         fillList("serviceType", d.services); 
@@ -183,7 +209,7 @@
         if (autoDriverName) {
            if (d.workers && d.workers.indexOf(autoDriverName) !== -1) {
              $("workerName").value = autoDriverName;
-             checkUser();
+             attemptLogin(); // Trigger secure login instead of direct entry
            } else {
              alert("⚠️ Link Error: Driver name '" + autoDriverName + "' not found.");
            }
@@ -274,6 +300,10 @@
             fillList("carType", [res.brand]); $("carType").value = res.brand;
             fillList("vType", [res.vType]); $("vType").value = res.vType;
             fillList("vNum", [res.vNum]); $("vNum").value = res.vNum;
+            
+            // FIX 1: Auto-assign the service type to the dropdown
+            $("serviceType").value = res.service || "TRF"; 
+            
             $("signatureArea").style.display = "none"; currentShiftDetails = { pdf:res.pdf, client:res.client, sig: res.sig }; 
             ["stepType", "stepNum", "stepFinal"].forEach(function(i) { $(i).style.display = "block"; }); getLocation("startLoc"); resizeCanvas();
           } else { $("preShiftDashboard").style.display = $("signatureArea").style.display = "block"; }
@@ -397,7 +427,6 @@
       else data.signature = currentShiftDetails.sig || "";
 
       try {
-        // --- SINGLE API CALL FOR MAXIMUM SPEED ---
         let prepData = await apiCall("preparePdfData", {
             isNew: isNew,
             pdfUrl: data.pdfUrl,
@@ -509,7 +538,8 @@
       
       try {
         let keyEl = $("keyLoc");
-        let payload = { name: name, loc:endLocationVal, keyLoc: (keyEl ? keyEl.value : ""), pdfBase64:pdfB64, pdfUrl:currentShiftDetails.pdf, endTimeStr: endTimeStr, endKms: endKmsVal, endFuel: endFuelVal };
+        // FIX 2: Added isFinalDay property to the payload sent to handleClockOut
+        let payload = { name: name, loc:endLocationVal, keyLoc: (keyEl ? keyEl.value : ""), pdfBase64:pdfB64, pdfUrl:currentShiftDetails.pdf, endTimeStr: endTimeStr, endKms: endKmsVal, endFuel: endFuelVal, isFinalDay: isFinal };
         let res = await apiCall("handleClockOut", payload, currentLang);
         alert(res.msg); location.reload();
       } catch(err) { alert(err); setBtn(btnId, btnOrig, false); }
