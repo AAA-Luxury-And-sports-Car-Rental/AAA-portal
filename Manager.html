@@ -141,23 +141,45 @@
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script>
-    // --- GITHUB PAGES API CONNECTION ---
+    // --- GITHUB PAGES API CONNECTION (UPDATED WITH AUTO-RETRY) ---
     const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbx7XsS7ce2bHvIzUIxOAp3znxS3-hXWFcUGTST-FMozYuAoCKpZKqGt3LXgRgjoTI4rsQ/exec";
     
     async function apiCall(fnName, ...args) {
-      try {
-        const response = await fetch(GAS_WEB_APP_URL, {
+      const maxRetries = 3;
+      let attempt = 0;
+
+      while (attempt < maxRetries) {
+        try {
+          const response = await fetch(GAS_WEB_APP_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'text/plain;charset=utf-8' },
             body: JSON.stringify({ functionName: fnName, arguments: args })
-        });
-        const result = await response.json();
-        if (!result.success) throw new Error(result.error || "Unknown API Error");
-        return result.data;
-      } catch (error) {
-        console.error("API Error:", error);
-        alert("Server Connection Failed: " + error.message);
-        throw error;
+          });
+
+          if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
+
+          const result = await response.json();
+          
+          if (!result.success) throw new Error(result.error || "Unknown API Error");
+          
+          return result.data;
+
+        } catch (error) {
+          attempt++;
+          console.warn(`API Attempt ${attempt} failed for ${fnName}:`, error.message);
+          
+          if (attempt >= maxRetries) {
+            console.error("API completely failed after retries.");
+            // Only alert if it's an interactive action, not a background sync
+            if (fnName !== "getManagerData" && fnName !== "updateLiveLocation") {
+                alert("Server connection unstable. Please check your network and try again.");
+            }
+            throw error;
+          }
+          
+          // Wait before retrying (exponential backoff)
+          await new Promise(resolve => setTimeout(resolve, attempt * 1000));
+        }
       }
     }
 
@@ -359,7 +381,8 @@
       }).catch(err => { $('refreshTimer').innerText = "Sync Failed!"; showToast("Data Sync Error: " + err.message); });
     }
     
-    updateDashboard(); setInterval(updateDashboard, 15000);
+    updateDashboard(); 
+    setInterval(updateDashboard, 30000); // Updated to 30 seconds to prevent rate limiting
   </script>
 </body>
 </html>
