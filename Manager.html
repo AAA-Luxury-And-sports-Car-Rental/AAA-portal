@@ -103,8 +103,11 @@
       <input type="hidden" id="pendingRowIdx" value=""><input type="hidden" id="editRowIdx" value="">
       <div class="form-group"><label>Scheduled Start</label><div class="form-row"><input type="date" id="dDate" onchange="checkAvailability()"><input type="time" id="dTime" onchange="checkAvailability()"></div></div>
       <div class="form-group"><label>Estimated End (Optional)</label><div class="form-row"><input type="date" id="dEndDate" onchange="checkAvailability()"><input type="time" id="dEndTime" onchange="checkAvailability()"></div></div>
-      <div class="form-group"><label>Assign Driver</label><input list="dNames" id="dName" placeholder="Select available driver..."><datalist id="dNames"></datalist></div>
-      <div class="form-group"><label>Client Name</label><input list="dClients" id="dClient" placeholder="Select client..."><datalist id="dClients"></datalist></div>
+      
+      <!-- UPDATED FOR MOBILE: Using standard <select> for Driver and Client -->
+      <div class="form-group"><label>Assign Driver</label><select id="dName"><option value="" disabled selected>Select available driver...</option></select></div>
+      <div class="form-group"><label>Client Name</label><select id="dClient"><option value="" disabled selected>Select client...</option></select></div>
+      
       <div class="form-group"><label>Car Brand</label><select id="dBrand" onchange="dFilterTypes()"><option value="" disabled selected>Select Brand</option></select></div>
       <div class="form-group"><label>Vehicle Type</label><select id="dType" onchange="dFilterNums()"><option value="" disabled selected>Select Type</option></select></div>
       <div class="form-group"><label>License Plate</label><select id="dNum"><option value="" disabled selected>Select Plate</option></select></div>
@@ -193,8 +196,9 @@
         if (data && data.error) showToast("Database Error: " + data.error);
         appDataGlobal = data;
         appDataGlobal.filteredVehicles = data.vehicleData; 
-        fillList("dNames", data.workers); 
-        fillList("dClients", data.clients);
+        // UPDATED: Now targeting the dName and dClient <select> menus directly
+        fillList("dName", data.workers); 
+        fillList("dClient", data.clients);
         fillList("dBrand", [...new Set(data.vehicleData.map(v => v.brand).filter(String))]);
       }).catch(err => showToast("Init Error: " + err.message));
       setTimeout(function(){ if(map) map.invalidateSize(); }, 500);
@@ -234,7 +238,10 @@
           if (startMs < sEnd && checkEndMs > sStart) { if (s.driver) busyDrivers.add(s.driver); if (s.carPlate) busyCars.add(s.carPlate); }
         });
       }
-      let availWorkers = appDataGlobal.workers.filter(w => !busyDrivers.has(w)); fillList("dNames", availWorkers);
+      
+      // UPDATED: Now targeting the dName <select> menu directly
+      let availWorkers = appDataGlobal.workers.filter(w => !busyDrivers.has(w)); fillList("dName", availWorkers);
+      
       appDataGlobal.filteredVehicles = appDataGlobal.vehicleData.filter(v => !busyCars.has(v.num));
       fillList("dBrand", [...new Set(appDataGlobal.filteredVehicles.map(v => v.brand).filter(String))]);
       if (cBrand && [...dBrandEl.options].some(o => o.value === cBrand)) {
