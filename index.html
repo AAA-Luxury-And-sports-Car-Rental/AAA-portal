@@ -89,14 +89,11 @@
   <script src="https://cdn.jsdelivr.net/npm/signature_pad@4.0.0/dist/signature_pad.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/pdf-lib/dist/pdf-lib.min.js"></script>
   <script>
-    // --- GITHUB PAGES API CONNECTION ---
     const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbx7XsS7ce2bHvIzUIxOAp3znxS3-hXWFcUGTST-FMozYuAoCKpZKqGt3LXgRgjoTI4rsQ/exec"; 
     
-    // NEW: Auto-Retry API function to stop connection drops
     async function apiCall(fnName, ...args) {
       const maxRetries = 3;
       let attempt = 0;
-
       while (attempt < maxRetries) {
         try {
           const response = await fetch(GAS_WEB_APP_URL, {
@@ -104,26 +101,18 @@
             headers: { 'Content-Type': 'text/plain;charset=utf-8' },
             body: JSON.stringify({ functionName: fnName, arguments: args })
           });
-
           if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
-
           const result = await response.json();
-          
           if (!result.success) throw new Error(result.error || "Unknown API Error");
-          
           return result.data;
-
         } catch (error) {
           attempt++;
           console.warn(`API Attempt ${attempt} failed for ${fnName}:`, error.message);
-          
           if (attempt >= maxRetries) {
             console.error("API completely failed after retries.");
-            alert("Server Connection Failed: " + error.message + "\n\nTip: If you are using multiple Google accounts, try opening this app in an Incognito/Private window.");
+            alert("Server Connection Failed: " + error.message + "\n\nTip: If using multiple Google accounts, try an Incognito window.");
             throw error;
           }
-          
-          // Wait before retrying (exponential backoff)
           await new Promise(resolve => setTimeout(resolve, attempt * 1000));
         }
       }
@@ -177,97 +166,87 @@
     function attemptLogin() {
       let name = $("workerName").value;
       if(!name) return;
-      
       let expectedPin = (appDataGlobal && appDataGlobal.driverPins && appDataGlobal.driverPins[name]) ? appDataGlobal.driverPins[name] : "0000";
-      
       let pin = prompt(currentLang === "en" ? "Enter your PIN (Default is 0000):" : "Entrez votre code PIN (Défaut: 0000):");
       
-      if(pin === null) { 
-          $("workerName").value = ""; 
-          return; 
-      }
-      
-      if(pin === expectedPin) {
-          checkUser(); 
-      } else {
-          alert(currentLang === "en" ? "Incorrect PIN." : "Code PIN incorrect.");
-          $("workerName").value = ""; 
-      }
+      if(pin === null) { $("workerName").value = ""; return; }
+      if(pin === expectedPin) { checkUser(); } 
+      else { alert(currentLang === "en" ? "Incorrect PIN." : "Code PIN incorrect."); $("workerName").value = ""; }
     }
 
+    // HELPER: Populate lists to keep onload clean
+    function populateLists(d) {
+      fillList("workerName", d.workers); 
+      fillList("clients", d.clients); 
+      fillList("serviceType", d.services); 
+      allVehicleData = d.vehicleData || [];
+      let uniqueBrands = getUnique(allVehicleData.map(function(v) { return v.brand; }));
+      fillList("carType", uniqueBrands); 
+    }
+
+    // FAST LOAD: Check localStorage first, then sync in background
     window.onload = function() { 
       setLang("en"); 
-      let loader = $("loader");
-      loader.style.display = "block";
-      
-      let timeoutMsg = setTimeout(function() {
-          loader.innerHTML = "⚠️ Loading is slow. Please refresh or check connection.";
-      }, 6000);
-
-      apiCall("getAppData").then(function(d) {
-        clearTimeout(timeoutMsg);
-        loader.style.display = "none";
-        if(!d) return; 
-        if(d.error) { alert("Spreadsheet Error: " + d.error); return; }
-        
-        appDataGlobal = d; 
-        
-        fillList("workerName", d.workers); 
-        fillList("clients", d.clients); 
-        fillList("serviceType", d.services); 
-        allVehicleData = d.vehicleData || [];
-        
-        let uniqueBrands = getUnique(allVehicleData.map(function(v) { return v.brand; }));
-        fillList("carType", uniqueBrands); 
-        
-        const urlParams = new URLSearchParams(window.location.search);
-        const autoDriverName = urlParams.get('driver') || "";
-        
-        if (autoDriverName) {
-           if (d.workers && d.workers.indexOf(autoDriverName) !== -1) {
-             $("workerName").value = autoDriverName;
-             attemptLogin(); 
-           } else {
-             alert("⚠️ Link Error: Driver name '" + autoDriverName + "' not found.");
-           }
-        }
-      }).catch(function(e) {
-        clearTimeout(timeoutMsg);
-        loader.innerHTML = "❌ Connection Error. Please refresh the page.";
-      });
-      
       let canvas = $("theCanvas");
       if(canvas) { try { signaturePad = new SignaturePad(canvas); } catch(e){} }
       $("startTime").value = new Date().toTimeString().substring(0,5); 
+      
+      const urlParams = new URLSearchParams(window.location.search);
+      const autoDriverName = urlParams.get('driver') || "";
+
+      // 1. Load instantly from cache if available
+      let cachedData = localStorage.getItem("aaa_app_data");
+      if (cachedData) {
+        try {
+          appDataGlobal = JSON.parse(cachedData);
+          populateLists(appDataGlobal);
+          if (autoDriverName && appDataGlobal.workers.indexOf(autoDriverName) !== -1) {
+            $("workerName").value = autoDriverName;
+            attemptLogin(); 
+          }
+        } catch(e) {}
+      } else {
+        $("loader").style.display = "block";
+      }
+
+      // 2. Fetch fresh data in background silently (or update loader if no cache)
+      apiCall("getAppData").then(function(d) {
+        $("loader").style.display = "none";
+        if(!d || d.error) return; 
+        
+        appDataGlobal = d; 
+        localStorage.setItem("aaa_app_data", JSON.stringify(d)); // Update cache
+        
+        // Only trigger UI update if we didn't already build it from cache
+        if (!cachedData) {
+          populateLists(d);
+          if (autoDriverName) {
+             if (d.workers && d.workers.indexOf(autoDriverName) !== -1) {
+               $("workerName").value = autoDriverName;
+               attemptLogin(); 
+             } else {
+               alert("⚠️ Link Error: Driver name '" + autoDriverName + "' not found.");
+             }
+          }
+        }
+      }).catch(function(e) {
+        if (!cachedData) $("loader").innerHTML = "❌ Connection Error. Please refresh.";
+      });
     };
     
     function filterTypes() { 
-      let brandVal = $("carType").value;
-      let types = new Set();
-      for(let i = 0; i < allVehicleData.length; i++) {
-         if(allVehicleData[i].brand === brandVal) types.add(allVehicleData[i].type);
-      }
-      fillList("vType", [...types]); 
-      $("vType").value = $("vNum").value = ""; 
-      $("stepType").style.display = "block"; 
-      $("stepNum").style.display = $("stepFinal").style.display = "none"; 
+      let brandVal = $("carType").value; let types = new Set();
+      for(let i = 0; i < allVehicleData.length; i++) { if(allVehicleData[i].brand === brandVal) types.add(allVehicleData[i].type); }
+      fillList("vType", [...types]); $("vType").value = $("vNum").value = ""; $("stepType").style.display = "block"; $("stepNum").style.display = $("stepFinal").style.display = "none"; 
     }
     
     function filterNumbers() { 
-      let brandVal = $("carType").value, typeVal = $("vType").value;
-      let nums = new Set();
-      for(let i = 0; i < allVehicleData.length; i++) {
-         if(allVehicleData[i].brand === brandVal && allVehicleData[i].type === typeVal) nums.add(allVehicleData[i].num);
-      }
-      fillList("vNum", [...nums]); 
-      $("vNum").value = ""; 
-      $("stepNum").style.display = "block"; 
-      $("stepFinal").style.display = "none"; 
+      let brandVal = $("carType").value, typeVal = $("vType").value; let nums = new Set();
+      for(let i = 0; i < allVehicleData.length; i++) { if(allVehicleData[i].brand === brandVal && allVehicleData[i].type === typeVal) nums.add(allVehicleData[i].num); }
+      fillList("vNum", [...nums]); $("vNum").value = ""; $("stepNum").style.display = "block"; $("stepFinal").style.display = "none"; 
     }
     
-    function showFinalStep() { 
-      if($("vNum").value) { $("stepFinal").style.display = "block"; resizeCanvas(); } 
-    }
+    function showFinalStep() { if($("vNum").value) { $("stepFinal").style.display = "block"; resizeCanvas(); } }
 
     function getLocation(id) { 
       $(id).value = t[currentLang].locating; 
@@ -275,9 +254,7 @@
         navigator.geolocation.getCurrentPosition(function(pos) {
           apiCall("getAddressFromLatLong", pos.coords.latitude, pos.coords.longitude).then(function(a) { $(id).value = a; });
         }, function() { $(id).value = t[currentLang].gpsFail; }, { enableHighAccuracy: true }); 
-      } else {
-        $(id).value = t[currentLang].gpsNotSupp; 
-      }
+      } else { $(id).value = t[currentLang].gpsNotSupp; }
     }
 
     function startLiveTracking() { 
@@ -290,10 +267,7 @@
       }, 15000); 
     }
 
-    function trackFlight() { 
-      let f = currentShiftDetails.flightNum; 
-      if(f) window.open("https://flightaware.com/live/flight/" + f.replace(/\s+/g, "").toUpperCase(), "_blank"); 
-    }
+    function trackFlight() { let f = currentShiftDetails.flightNum; if(f) window.open("https://flightaware.com/live/flight/" + f.replace(/\s+/g, "").toUpperCase(), "_blank"); }
 
     async function checkUser() {
       let name = $("workerName").value; if(!name || isCheckingUser) return; isCheckingUser = true; 
@@ -317,9 +291,7 @@
             fillList("carType", [res.brand]); $("carType").value = res.brand;
             fillList("vType", [res.vType]); $("vType").value = res.vType;
             fillList("vNum", [res.vNum]); $("vNum").value = res.vNum;
-            
             $("serviceType").value = res.service || "TRF"; 
-            
             $("signatureArea").style.display = "none"; currentShiftDetails = { pdf:res.pdf, client:res.client, sig: res.sig }; 
             ["stepType", "stepNum", "stepFinal"].forEach(function(i) { $(i).style.display = "block"; }); getLocation("startLoc"); resizeCanvas();
           } else { $("preShiftDashboard").style.display = $("signatureArea").style.display = "block"; }
@@ -360,29 +332,13 @@
       let l = $("waLangSelect").value, d = $("workerName").value;
       let c = currentShiftDetails.brand || "Luxury Vehicle";
       let hr = new Date().getHours();
-      
-      let g = "";
-      if (l === "en") g = hr < 12 ? "Good morning" : hr < 18 ? "Good afternoon" : "Good evening";
-      else if (l === "fr") g = hr < 18 ? "Bonjour" : "Bonsoir";
-      else g = hr < 12 ? "صباح الخير" : hr < 18 ? "يسعد مساك" : "مساء الخير";
-      
+      let g = l === "en" ? (hr < 12 ? "Good morning" : hr < 18 ? "Good afternoon" : "Good evening") : (l === "fr" ? (hr < 18 ? "Bonjour" : "Bonsoir") : (hr < 12 ? "صباح الخير" : hr < 18 ? "يسعد مساك" : "مساء الخير"));
       let tr = webAppUrl + "?track=" + encodeURIComponent(d);
-      let msg = "";
-      
-      if (l === "en") {
-        msg = type === "enroute" ? g + ", this is " + d + ", your AAA Luxury chauffeur. I am en route in the " + c + ".\n\nTrack my live arrival:\n📍 " + tr : g + ", this is " + d + ". I have arrived in the " + c + ". Location: ";
-      } else {
-        msg = type === "enroute" ? g + ", c'est " + d + ", votre chauffeur AAA Luxury. Je suis en route à bord du " + c + ".\n\nSuivez mon arrivée :\n📍 " + tr : g + ", c'est " + d + ". Je suis arrivé dans le " + c + ". Ma position : ";
-      }
+      let msg = l === "en" ? (type === "enroute" ? g + ", this is " + d + ", your AAA Luxury chauffeur. I am en route in the " + c + ".\n\nTrack my live arrival:\n📍 " + tr : g + ", this is " + d + ". I have arrived in the " + c + ". Location: ") : (type === "enroute" ? g + ", c'est " + d + ", votre chauffeur AAA Luxury. Je suis en route à bord du " + c + ".\n\nSuivez mon arrivée :\n📍 " + tr : g + ", c'est " + d + ". Je suis arrivé dans le " + c + ". Ma position : ");
       
       const trig = function(m) { 
-        let a = document.createElement("a"); 
-        a.href = "https://wa.me/" + p + "?text=" + encodeURIComponent(m); 
-        a.target = "_top"; 
-        document.body.appendChild(a); 
-        a.click(); 
-        document.body.removeChild(a); 
-        btn.innerText = og; 
+        let a = document.createElement("a"); a.href = "https://wa.me/" + p + "?text=" + encodeURIComponent(m); a.target = "_top"; 
+        document.body.appendChild(a); a.click(); document.body.removeChild(a); btn.innerText = og; 
       };
       
       if(type === "arrived") { 
@@ -390,9 +346,7 @@
         navigator.geolocation.getCurrentPosition(function(pos) {
           trig(msg + "http://googleusercontent.com/maps.google.com/?q=" + pos.coords.latitude + "," + pos.coords.longitude);
         }, function() { alert("GPS required."); btn.innerText = og; }, {enableHighAccuracy: true}); 
-      } else { 
-        trig(msg); 
-      } 
+      } else { trig(msg); } 
     }
     
     const getBase64 = function(file) {
@@ -412,11 +366,9 @@
     };
 
     function drawFuelGauge(page, cx, cy, percentage) {
-      let r = 6.5; 
-      let p = Math.min(Math.max(percentage, 0), 100);
+      let r = 6.5; let p = Math.min(Math.max(percentage, 0), 100);
       const pointsToSvgPath = function(pts) { return pts.map(function(pt, i) { return (i === 0 ? "M " + pt.x + "," + pt.y : "L " + pt.x + "," + pt.y); }).join(" ") + " Z"; };
-      let bgPts = [{x: 0, y: 0}];
-      for (let i = 180; i >= 0; i -= 5) { let rad = i * Math.PI / 180; bgPts.push({ x: r * Math.cos(rad), y: -r * Math.sin(rad) }); }
+      let bgPts = [{x: 0, y: 0}]; for (let i = 180; i >= 0; i -= 5) { let rad = i * Math.PI / 180; bgPts.push({ x: r * Math.cos(rad), y: -r * Math.sin(rad) }); }
       page.drawSvgPath(pointsToSvgPath(bgPts), { x: cx, y: cy, color: PDFLib.rgb(0.9, 0.9, 0.9), borderColor: PDFLib.rgb(0, 0, 0), borderWidth: 1 });
       if (p > 0) {
         let fillPts = [{x: 0, y: 0}]; let startAngle = 180; let endAngle = 180 - (p / 100) * 180; 
@@ -426,45 +378,46 @@
       }
     }
 
+    // NEW: OPTIMISTIC UI for Starting Jobs
     async function doStart() {
-      setBtn("btnStart", t[currentLang].stamping, true);
       let data = { 
         name:$("workerName").value, client:$("clientName").value, car:$("carType").value, vType:$("vType").value, vNum:$("vNum").value, service:$("serviceType").value, 
         location:$("startLoc").value, timeStr:$("startTime").value, assignedRowIdx: (assignedMissionData ? assignedMissionData.rowIdx : null), flightNum: (assignedMissionData ? assignedMissionData.flightNum : ""), 
         pdfUrl:currentShiftDetails.pdf||"", startKms: $("startKms").value, startFuel: $("startFuel").value
       };
       
-      if(!data.name||!data.client||!data.car||!data.startKms||!data.startFuel) { setBtn("btnStart", t[currentLang].btnStart, false); return alert(t[currentLang].fillAll); }
-      
+      if(!data.name||!data.client||!data.car||!data.startKms||!data.startFuel) { return alert(t[currentLang].fillAll); }
       let isNew = !data.pdfUrl; 
-      if(isNew && signaturePad && signaturePad.isEmpty()) { setBtn("btnStart", t[currentLang].btnStart, false); return alert(t[currentLang].mustSign); } 
+      if(isNew && signaturePad && signaturePad.isEmpty()) { return alert(t[currentLang].mustSign); } 
       
       if(isNew && signaturePad) data.signature = signaturePad.toDataURL();
       else data.signature = currentShiftDetails.sig || "";
 
+      // 1. OPTIMISTIC UI FLIP: Instantly move driver to "On Duty" dashboard
+      $("startSection").style.display = "none";
+      $("endSection").style.display = "block";
+      getLocation("endLoc");
+      
+      // Setup temporary PDF button state
+      $("pdfContainer").style.display = "block";
+      $("activePdfLink").innerText = currentLang === "en" ? "⏳ Generating PDF..." : "⏳ Création du PDF...";
+      $("activePdfLink").removeAttribute("href");
+      
+      // Start GPS immediately
+      startLiveTracking();
+
+      // 2. BACKGROUND SYNC: Let the slow stuff happen invisibly
       try {
-        let prepData = await apiCall("preparePdfData", {
-            isNew: isNew,
-            pdfUrl: data.pdfUrl,
-            driverName: data.name,
-            clientName: data.client
-        });
-        
+        let prepData = await apiCall("preparePdfData", { isNew: isNew, pdfUrl: data.pdfUrl, driverName: data.name, clientName: data.client });
         if (prepData.error) throw new Error(prepData.error);
 
-        let tmpl = prepData.tmpl;
-        let shiftCount = parseInt(prepData.shiftCount) || 0;
-        let extraPdfs = prepData.extraPdfs;
-
+        let tmpl = prepData.tmpl, shiftCount = parseInt(prepData.shiftCount) || 0, extraPdfs = prepData.extraPdfs;
         let doc = await PDFLib.PDFDocument.load(tmpl);
         
-        let pageIndex = Math.floor(shiftCount / 12);
-        let shiftOnPage = shiftCount % 12;
-        let yOff = 680 - (shiftOnPage * 26);
+        let pageIndex = Math.floor(shiftCount / 12), shiftOnPage = shiftCount % 12, yOff = 680 - (shiftOnPage * 26);
         
         if (!isNew && shiftOnPage === 0 && shiftCount > 0) {
-            let cleanTmpl = await apiCall("getPdfTemplate");
-            let cleanDoc = await PDFLib.PDFDocument.load(cleanTmpl);
+            let cleanDoc = await PDFLib.PDFDocument.load(await apiCall("getPdfTemplate"));
             let [newPage] = await doc.copyPages(cleanDoc, [0]);
             doc.insertPage(pageIndex, newPage); 
             let newP = doc.getPages()[pageIndex];
@@ -496,8 +449,18 @@
         p.drawText(new Date().toLocaleDateString(), {x:30,y:yOff,size:9}); p.drawText(l1, {x:90,y:yOff +5,size:4}); if(l2) p.drawText(l2, {x:90,y:yOff,size:4}); p.drawText(data.vNum, {x:153,y:yOff,size:9}); p.drawText(data.service, {x:220,y:yOff,size:9}); p.drawText(data.timeStr, {x:280,y:yOff,size:9}); p.drawText(String(data.startKms), {x:345,y:yOff,size:9});
         
         data.pdfBase64 = await doc.saveAsBase64(); 
-        await apiCall("handleClockIn", data, currentLang); setBtn("btnStart", t[currentLang].btnStart, false); checkUser();
-      } catch(e) { alert("Error: " + e); setBtn("btnStart", t[currentLang].btnStart, false); }
+        
+        // Final database push
+        let res = await apiCall("handleClockIn", data, currentLang); 
+        
+        // 3. UI RESTORATION: Update link now that Google is finished
+        $("activePdfLink").innerText = t[currentLang].viewPdf;
+        $("activePdfLink").href = res.url;
+        currentShiftDetails.pdf = res.url;
+
+      } catch(e) { 
+        alert("Background Sync Error: " + e + "\n\nPlease refresh the app."); 
+      }
     }
 
     async function finishJob(isFinal) { 
