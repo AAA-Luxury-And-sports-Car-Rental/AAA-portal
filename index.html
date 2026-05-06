@@ -19,7 +19,6 @@
     <img src="https://i.postimg.cc/cJhXywng/aaa-luxury-sport-cars-rental-logo.jpg" class="logo-img">
     <h2 data-i18n="title">Driver Portal</h2>
 
-    <!-- FIX 3: Changed onchange to attemptLogin() -->
     <label data-i18n="selectName">Select Your Name</label>
     <select id="workerName" onchange="attemptLogin()"><option value="" disabled selected data-i18n="namePlace">Select name...</option></select>
     <div id="loader" style="display:none;color:#c5a059;margin-top:10px" data-i18n="loading">Loading...</div>
@@ -93,20 +92,40 @@
     // --- GITHUB PAGES API CONNECTION ---
     const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbx7XsS7ce2bHvIzUIxOAp3znxS3-hXWFcUGTST-FMozYuAoCKpZKqGt3LXgRgjoTI4rsQ/exec"; 
     
+    // NEW: Auto-Retry API function to stop connection drops
     async function apiCall(fnName, ...args) {
-      try {
-        const response = await fetch(GAS_WEB_APP_URL, {
+      const maxRetries = 3;
+      let attempt = 0;
+
+      while (attempt < maxRetries) {
+        try {
+          const response = await fetch(GAS_WEB_APP_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'text/plain;charset=utf-8' },
             body: JSON.stringify({ functionName: fnName, arguments: args })
-        });
-        const result = await response.json();
-        if (!result.success) throw new Error(result.error || "Unknown API Error");
-        return result.data;
-      } catch (error) {
-        console.error("API Error:", error);
-        alert("Server Connection Failed: " + error.message);
-        throw error;
+          });
+
+          if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
+
+          const result = await response.json();
+          
+          if (!result.success) throw new Error(result.error || "Unknown API Error");
+          
+          return result.data;
+
+        } catch (error) {
+          attempt++;
+          console.warn(`API Attempt ${attempt} failed for ${fnName}:`, error.message);
+          
+          if (attempt >= maxRetries) {
+            console.error("API completely failed after retries.");
+            alert("Server Connection Failed: " + error.message + "\n\nTip: If you are using multiple Google accounts, try opening this app in an Incognito/Private window.");
+            throw error;
+          }
+          
+          // Wait before retrying (exponential backoff)
+          await new Promise(resolve => setTimeout(resolve, attempt * 1000));
+        }
       }
     }
 
@@ -116,7 +135,6 @@
     const toggleBox = function(id) { let s = $(id).style; s.display = s.display === "none" || !s.display ? "block" : "none"; };
     const getUnique = function(arr) { return [...new Set(arr)]; };
 
-    // Added appDataGlobal
     let trackingInterval = null, assignedMissionData = null, signaturePad, allVehicleData = [], currentShiftDetails = {}, isCheckingUser = false, currentLang = "en", appDataGlobal = null; 
     const webAppUrl = window.location.href.split('?')[0]; 
     
@@ -156,7 +174,6 @@
       }
     };
 
-    // FIX 3: ADDED attemptLogin function for secure pin checks
     function attemptLogin() {
       let name = $("workerName").value;
       if(!name) return;
@@ -193,7 +210,7 @@
         if(!d) return; 
         if(d.error) { alert("Spreadsheet Error: " + d.error); return; }
         
-        appDataGlobal = d; // Store Globally for PIN usage
+        appDataGlobal = d; 
         
         fillList("workerName", d.workers); 
         fillList("clients", d.clients); 
@@ -209,7 +226,7 @@
         if (autoDriverName) {
            if (d.workers && d.workers.indexOf(autoDriverName) !== -1) {
              $("workerName").value = autoDriverName;
-             attemptLogin(); // Trigger secure login instead of direct entry
+             attemptLogin(); 
            } else {
              alert("⚠️ Link Error: Driver name '" + autoDriverName + "' not found.");
            }
@@ -301,7 +318,6 @@
             fillList("vType", [res.vType]); $("vType").value = res.vType;
             fillList("vNum", [res.vNum]); $("vNum").value = res.vNum;
             
-            // FIX 1: Auto-assign the service type to the dropdown
             $("serviceType").value = res.service || "TRF"; 
             
             $("signatureArea").style.display = "none"; currentShiftDetails = { pdf:res.pdf, client:res.client, sig: res.sig }; 
@@ -538,7 +554,6 @@
       
       try {
         let keyEl = $("keyLoc");
-        // FIX 2: Added isFinalDay property to the payload sent to handleClockOut
         let payload = { name: name, loc:endLocationVal, keyLoc: (keyEl ? keyEl.value : ""), pdfBase64:pdfB64, pdfUrl:currentShiftDetails.pdf, endTimeStr: endTimeStr, endKms: endKmsVal, endFuel: endFuelVal, isFinalDay: isFinal };
         let res = await apiCall("handleClockOut", payload, currentLang);
         alert(res.msg); location.reload();
