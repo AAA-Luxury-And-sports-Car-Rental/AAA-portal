@@ -96,7 +96,7 @@
 
   <!-- RESERVATIONS LIST MODAL -->
   <div class="modal-overlay" id="reservationsModal">
-    <div class="modal-content" style="max-width: 800px;">
+    <div class="modal-content" style="max-width: 900px;">
       <div class="modal-header">
         <h3 style="margin:0; color:#2196F3; text-transform:uppercase;">📋 Reservations</h3>
         <div>
@@ -108,7 +108,8 @@
         <table class="res-table">
           <thead>
             <tr>
-              <th>Date</th>
+              <th>Start Date</th>
+              <th>End Date</th>
               <th>Client</th>
               <th>Service</th>
               <th>Notes</th>
@@ -117,7 +118,7 @@
             </tr>
           </thead>
           <tbody id="resBody">
-            <tr><td colspan='6' style='text-align:center; padding:20px; color:#888;'>Loading...</td></tr>
+            <tr><td colspan='7' style='text-align:center; padding:20px; color:#888;'>Loading...</td></tr>
           </tbody>
         </table>
       </div>
@@ -133,8 +134,14 @@
       </div>
       <input type="hidden" id="resRowIdx" value="">
       <div class="form-group"><label>Client Name</label><input type="text" id="resClient" placeholder="Client Name"></div>
-      <div class="form-group"><label>Date & Time</label><input type="datetime-local" id="resDate"></div>
-      <div class="form-group"><label>Service Type</label><select id="resService"><option value="TRF">TRF (Transfer)</option><option value="DISPO">DISPO (Hourly)</option></select></div>
+      <div class="form-group">
+        <label>Start & End Date/Time</label>
+        <div class="form-row">
+          <input type="datetime-local" id="resDate" title="Start Date">
+          <input type="datetime-local" id="resEndDate" title="End Date">
+        </div>
+      </div>
+      <div class="form-group"><label>Service Type</label><input type="text" id="resService" placeholder="e.g. TRF, DISPO, Wedding..."></div>
       <div class="form-group"><label>Extra Notes / Details</label><input type="text" id="resNotes" placeholder="Special requirements..."></div>
       <div class="form-group" id="resStatusGroup"><label>Status</label><select id="resStatus"><option value="Pending">Pending</option><option value="Approved">Approved</option><option value="Cancelled">Cancelled</option></select></div>
       <button class="btn-action btn-green" style="width:100%; padding:15px; font-size:14px; margin-top:10px;" onclick="saveReservation()">💾 Save Reservation</button>
@@ -165,7 +172,7 @@
       <div class="form-group"><label>Car Brand</label><select id="dBrand" onchange="dFilterTypes()"><option value="" disabled selected>Select Brand</option></select></div>
       <div class="form-group"><label>Vehicle Type</label><select id="dType" onchange="dFilterNums()"><option value="" disabled selected>Select Type</option></select></div>
       <div class="form-group"><label>License Plate</label><select id="dNum"><option value="" disabled selected>Select Plate</option></select></div>
-      <div class="form-group"><label>Service Type</label><select id="dService"><option value="TRF">TRF (Transfer)</option><option value="DISPO">DISPO (Hourly)</option></select></div>
+      <div class="form-group"><label>Service Type</label><input type="text" id="dService" placeholder="e.g. TRF, DISPO, Wedding..."></div>
       <div class="form-group"><label>VIP Flight / Tail Number (Optional)</label><input type="text" id="dFlight" placeholder="e.g. AF1234" style="border-color:#4caf50;"></div>
       <div class="form-group"><label>Special Instructions</label><input type="text" id="dNotes" placeholder="Notes for the driver..." style="border-color:#ff9800;"></div>
       <button class="btn-action btn-green" id="btnDispatch" style="width:100%; padding:15px; font-size:14px;" onclick="sendDispatch()">🚀 Send to Driver App</button>
@@ -255,21 +262,25 @@
     }
 
     function loadReservations() {
-      $('resBody').innerHTML = "<tr><td colspan='6' style='text-align:center; padding:20px; color:#888;'>Loading reservations...</td></tr>";
+      $('resBody').innerHTML = "<tr><td colspan='7' style='text-align:center; padding:20px; color:#888;'>Loading reservations...</td></tr>";
       apiCall("getAllReservations").then(data => {
-        if(data.error) return $('resBody').innerHTML = `<tr><td colspan='6' style='color:#f44336; text-align:center;'>Error: ${data.error}</td></tr>`;
-        if(!data.length) return $('resBody').innerHTML = `<tr><td colspan='6' style='text-align:center; padding:20px; color:#888;'>No reservations found.</td></tr>`;
+        if(data.error) return $('resBody').innerHTML = `<tr><td colspan='7' style='color:#f44336; text-align:center;'>Error: ${data.error}</td></tr>`;
+        if(!data.length) return $('resBody').innerHTML = `<tr><td colspan='7' style='text-align:center; padding:20px; color:#888;'>No reservations found.</td></tr>`;
         
         let html = "";
         data.forEach(r => {
           let dateObj = r.date ? new Date(r.date) : null;
           let dStr = (dateObj && !isNaN(dateObj.getTime())) ? dateObj.toLocaleString([], {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'}) : "TBD";
           
+          let endDateObj = r.endDate ? new Date(r.endDate) : null;
+          let edStr = (endDateObj && !isNaN(endDateObj.getTime())) ? endDateObj.toLocaleString([], {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'}) : "-";
+          
           let badgeClass = r.status === 'Pending' ? 'badge-pending' : (r.status === 'Approved' ? 'badge-approved' : 'badge-cancelled');
           let rDataStr = encodeURIComponent(JSON.stringify(r));
 
           html += `<tr>
             <td style="white-space:nowrap;">${dStr}</td>
+            <td style="white-space:nowrap; color:#aaa;">${edStr}</td>
             <td style="font-weight:bold; color:white;">${r.client}</td>
             <td style="color:#aaa;">${r.service}</td>
             <td style="color:#ccc; max-width:200px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${r.details}">${r.details || '-'}</td>
@@ -279,7 +290,7 @@
         });
         $('resBody').innerHTML = html;
       }).catch(err => {
-        $('resBody').innerHTML = `<tr><td colspan='6' style='color:#f44336; text-align:center;'>Failed to load.</td></tr>`;
+        $('resBody').innerHTML = `<tr><td colspan='7' style='color:#f44336; text-align:center;'>Failed to load.</td></tr>`;
       });
     }
 
@@ -297,7 +308,15 @@
           $('resDate').value = "";
         }
         
-        $('resService').value = r.service || "TRF";
+        if(r.endDate && r.endDate !== 'undefined') {
+          let ed = new Date(r.endDate);
+          ed.setMinutes(ed.getMinutes() - ed.getTimezoneOffset());
+          $('resEndDate').value = ed.toISOString().slice(0,16);
+        } else {
+          $('resEndDate').value = "";
+        }
+        
+        $('resService').value = r.service || "";
         $('resNotes').value = r.details || "";
         $('resStatus').value = r.status || "Pending";
         
@@ -307,7 +326,8 @@
         $('resRowIdx').value = "";
         $('resClient').value = "";
         $('resDate').value = "";
-        $('resService').value = "TRF";
+        $('resEndDate').value = "";
+        $('resService').value = "";
         $('resNotes').value = "";
         $('resStatus').value = "Pending";
         
@@ -322,12 +342,13 @@
       let payload = {
         client: $('resClient').value,
         date: $('resDate').value,
+        endDate: $('resEndDate').value,
         service: $('resService').value,
         details: $('resNotes').value,
         status: $('resStatus').value
       };
       
-      if(!payload.client || !payload.date) return showToast("Error: Client and Date are required.");
+      if(!payload.client || !payload.date) return showToast("Error: Client and Start Date are required.");
       
       let fn = row ? "updateReservation" : "addReservation";
       let args = row ? [row, payload] : [payload];
@@ -374,7 +395,7 @@
     
     function openEmptyDispatch() {
       $('pendingRowIdx').value = ""; $('editRowIdx').value = "";
-      $('dName').value = ""; $('dClient').value = ""; $('dBrand').value = ""; $('dType').value = ""; $('dNum').value = ""; $('dService').value = "TRF";
+      $('dName').value = ""; $('dClient').value = ""; $('dBrand').value = ""; $('dType').value = ""; $('dNum').value = ""; $('dService').value = "";
       let today = new Date(); $('dDate').value = today.toISOString().split('T')[0]; $('dTime').value = ""; $('dEndDate').value = ""; $('dEndTime').value = ""; $('dFlight').value = ""; $('dNotes').value = "";
       $('btnDispatch').innerText = "🚀 Send to Driver App"; checkAvailability(); toggleModal('dispatchModal');
     }
@@ -383,7 +404,7 @@
       let item = JSON.parse(decodeURIComponent(itemJsonStr));
       $('pendingRowIdx').value = ""; $('editRowIdx').value = item.rowIdx;
       $('dName').value = item.driver || ""; $('dClient').value = item.client || ""; $('dBrand').value = item.brand || "";
-      dFilterTypes(); $('dType').value = item.vType || ""; dFilterNums(); $('dNum').value = item.vNum || ""; $('dService').value = item.service || "TRF";
+      dFilterTypes(); $('dType').value = item.vType || ""; dFilterNums(); $('dNum').value = item.vNum || ""; $('dService').value = item.service || "";
       if (item.rawDate) { let d = new Date(item.rawDate); $('dDate').value = d.toISOString().split('T')[0]; $('dTime').value = d.toTimeString().substring(0,5); }
       $('dFlight').value = item.flightNum || ""; $('dNotes').value = item.notes || "";
       $('btnDispatch').innerText = "💾 Update Shift"; toggleModal('dispatchModal');
