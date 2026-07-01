@@ -217,8 +217,13 @@
             body: JSON.stringify({ functionName: fnName, arguments: args })
         });
         const result = await response.json();
-        if (!result.success) throw new Error(result.error || "Unknown API Error");
-        return result.data;
+        
+        // FIX: The backend returns 'error' properties for failures, and direct payload for successes.
+        // It rarely sends a { success: true } wrapper.
+        if (result && result.error) throw new Error(result.error);
+        
+        // Return data if wrapped, otherwise return the whole object
+        return result.data !== undefined ? result.data : result;
       } catch (error) {
         console.error("API Error:", error);
         alert("Server Connection Failed: " + error.message);
